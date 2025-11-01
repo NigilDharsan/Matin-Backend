@@ -1,0 +1,80 @@
+{
+  "info": {
+    "name": "Dealer Django-Ninja API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"admin\",\"password\":\"yourpassword\"}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/core/login"
+        }
+      }
+    },
+    {
+      "name": "Get Dealers",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8000/api/core/dealers"
+        }
+      }
+    },
+    {
+      "name": "Add Dealer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"Dealer1\",\"mobile_number\":\"9999999999\",\"address_line1\":\"Addr\",\"branch\":1}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/core/dealers"
+        }
+      }
+    },
+    {
+      "name": "Dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8000/api/core/dashboard"
+        }
+      }
+    }
+  ]
+}
