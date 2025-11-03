@@ -2,12 +2,81 @@ from ninja import Router
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import Role,Branch,Dealer,ProductSupply
-from .schemas import RoleSchema,BranchSchema,DealerSchema,ProductSupplySchema
-from .auth import JWTAuth
+from django.db.models import Sum
+from .schemas import (
+    BranchResponseSchema,
+    DealerResponseSchema,
+    DetailsSchema,
+    ProductSupplyResponseSchema,
+    RoleResponseSchema,
+    RoleSchema,
+    BranchSchema,
+    DealerInSchema,
+    ProductSupplySchema,
+)
+from .responses import BaseResponseSchema, PaginatedResponseSchema
+from .utils import paginate_queryset, create_paginated_response
+from .auth import get_auth_class
 
-router=Router()
+# Create an unprotected router for login
+auth_router = Router()
 
-@router.post('/login')
+# Main router - uses dynamic auth based on settings
+auth_class = get_auth_class()
+if auth_class:
+    router = Router(auth=auth_class())
+else:
+    router = Router()  # No authentication when API_AUTHENTICATION_ENABLED is False
+
+
+def _role_to_dict(role: Role) -> dict:
+    return {
+        'id': role.id,
+        'name': role.name,
+    }
+
+
+def _branch_to_dict(branch: Branch) -> dict:
+    return {
+        'id': branch.id,
+        'name': branch.name,
+        'address': branch.address,
+    }
+
+
+def _dealer_to_dict(dealer: Dealer) -> dict:
+    return {
+        'id': dealer.id,
+        'name': dealer.name,
+        'mobile_number': dealer.mobile_number,
+        'company_name': dealer.company_name,
+        'email': dealer.email,
+        'address_line1': dealer.address_line1,
+        'address_line2': dealer.address_line2,
+        'pincode': dealer.pincode,
+        'state': dealer.state,
+        'branch': dealer.branch_id,
+        'created_at': dealer.created_at.date() if dealer.created_at else None,
+        'branch_name': dealer.branch.name if dealer.branch else None,
+    }
+
+
+def _supply_to_dict(s: ProductSupply) -> dict:
+    return {
+        'id': s.id,
+        'dealer': s.dealer_id,
+        'dealer_name': s.dealer.name if s.dealer else None,
+        'product_name': s.product_name,
+        'invoice_number': s.invoice_number,
+        'serial_number': s.serial_number,
+        'vehicle_model': s.vehicle_model,
+        'purchase_date': s.purchase_date,
+        'remarks': s.remarks,
+        'count': s.count,
+        'created_at': s.created_at.date() if s.created_at else None
+    }
+
+@auth_router.post('/login')
 def login(request, username:str, password:str):
     user=authenticate(username=username,password=password)
     if not user:
@@ -15,42 +84,88 @@ def login(request, username:str, password:str):
     refresh=RefreshToken.for_user(user)
     return {'access':str(refresh.access_token),'refresh':str(refresh)}
 
-@router.get('/roles',response=list[RoleSchema],auth=JWTAuth())
+@router.get('/details',response=DetailsSchema)
 def list_roles(request):
-    return list(Role.objects.all())
+    response = {
+        "roles": [_role_to_dict(r) for r in Role.objects.all()],
+        "branches": [_branch_to_dict(b) for b in Branch.objects.all()],
+        "dealers": [_dealer_to_dict(d) for d in Dealer.objects.all()]
+    }
+    return response
 
-@router.post('/roles',response=RoleSchema,auth=JWTAuth())
+@router.post('/roles',response=RoleResponseSchema)
 def add_role(request,data:RoleSchema):
     obj=Role.objects.create(**data.dict())
-    return obj
+    return _role_to_dict(obj)
 
-@router.get('/branches',response=list[BranchSchema],auth=JWTAuth())
-def list_branches(request):
-    return list(Branch.objects.all())
-
-@router.post('/branches',response=BranchSchema,auth=JWTAuth())
+@router.post('/branches',response=BranchResponseSchema)
 def add_branch(request,data:BranchSchema):
     obj=Branch.objects.create(**data.dict())
-    return obj
+    return _branch_to_dict(obj)
 
-@router.get('/dealers',response=list[DealerSchema],auth=JWTAuth())
-def list_dealers(request):
-    return list(Dealer.objects.all())
+@router.post('/dealers',response=DealerResponseSchema)
+def add_dealer(request,data:DealerInSchema):
+    payload = data.dict()
+    # accept branch as an int id in the schema; use branch_id to create
+    branch_id = payload.pop('branch', None)
+    if branch_id is not None:
+        obj = Dealer.objects.create(branch_id=branch_id, **payload)
+    else:
+        obj = Dealer.objects.create(**payload)
+    return _dealer_to_dict(obj)
 
-@router.post('/dealers',response=DealerSchema,auth=JWTAuth())
-def add_dealer(request,data:DealerSchema):
-    obj=Dealer.objects.create(**data.dict())
-    return obj
+@router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
+def list_supplies(request, page: int = 1, page_size: int = 10):
+    supplies = ProductSupply.objects.all()
+    items, pagination = paginate_queryset(
+        supplies, 
+        page=page, 
+        page_size=page_size,
+        url_path="/api/supplies"
+    )
+    return PaginatedResponseSchema.success_response(
+        data=[_supply_to_dict(s) for s in items],
+        pagination=pagination,
+        message="Product supplies retrieved successfully"
+    )
 
-@router.get('/supplies',response=list[ProductSupplySchema],auth=JWTAuth())
-def list_supplies(request):
-    return list(ProductSupply.objects.all())
+@router.post('/supplies', response=BaseResponseSchema[ProductSupplyResponseSchema])
+def add_supply(request, data: ProductSupplySchema):
+    try:
+        payload = data.dict()
+        # accept dealer as an int id in the schema; use dealer_id to create
+        dealer_id = payload.pop('dealer', None)
+        if dealer_id is not None:
+            obj = ProductSupply.objects.create(dealer_id=dealer_id, **payload)
+        else:
+            obj = ProductSupply.objects.create(**payload)
+        return BaseResponseSchema.success_response(
+            data=_supply_to_dict(obj),
+            message="Product supply created successfully"
+        )
+    except Exception as e:
+        return BaseResponseSchema.error_response(
+            message=str(e),
+            code="SUPPLY_CREATE_ERROR"
+        )
 
-@router.post('/supplies',response=ProductSupplySchema,auth=JWTAuth())
-def add_supply(request,data:ProductSupplySchema):
-    obj=ProductSupply.objects.create(**data.dict())
-    return obj
-
-@router.get('/dashboard',auth=JWTAuth())
+@router.get('/dashboard')
 def dashboard_counts(request):
-    return {'vehicle_count':ProductSupply.objects.count(),'dealer_count':Dealer.objects.count(),'branch_count':Branch.objects.count()}
+    # aggregate vehicle counts per product_name by summing the `count` field
+    product_counts = (
+        ProductSupply.objects
+        .values('product_name')
+        .annotate(total=Sum('count'))
+        .order_by('-total')
+    )
+    response = {
+        f"{i['product_name']}_count" : i['total']
+        for i in product_counts
+    }
+    response.update(
+        {
+        'dealer_count': Dealer.objects.count(),
+        'branch_count': Branch.objects.count()
+    }
+    )
+    return response

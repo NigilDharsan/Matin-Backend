@@ -1,0 +1,13 @@
+[Unit]
+Description=gunicorn daemon for {PROJECT_MODULE}
+After=network.target
+
+[Service]
+User={DEPLOY_USER}
+Group={DEPLOY_USER}
+WorkingDirectory={APP_DIR}
+Environment="PATH={VENV_DIR}/bin"
+ExecStart={VENV_DIR}/bin/gunicorn --workers {NUM_WORKERS} --bind unix:{SOCKET_FILE} {PROJECT_MODULE}.wsgi:application
+
+[Install]
+WantedBy=multi-user.target
