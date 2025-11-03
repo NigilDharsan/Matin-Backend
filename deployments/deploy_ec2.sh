@@ -22,7 +22,7 @@ PYTHON=${PYTHON:-python3}
 VENV_DIR="$APP_DIR/venv"
 PROJECT_DIR=${PROJECT_DIR:-$APP_DIR}
 PROJECT_MODULE=${PROJECT_MODULE:-dealer_project}  # Django project module that contains wsgi.py
-SOCKET_FILE=${SOCKET_FILE:-/run/gunicorn.sock}
+SOCKET_FILE=${SOCKET_FILE:-/home/ubuntu/Matin-Backend/gunicorn.sock}
 DOMAIN=${DOMAIN:-3.80.137.153}   # server_name for nginx; use your domain if available
 NUM_WORKERS=${NUM_WORKERS:-3}
 
@@ -118,7 +118,7 @@ NGINX_CONF_PATH=/etc/nginx/sites-available/django_project
 echo "Creating nginx config at $NGINX_CONF_PATH"
 $SUDO tee "$NGINX_CONF_PATH" > /dev/null <<EOF
 server {
-    listen 80;
+    listen 8000;
     server_name $DOMAIN;
 
     location = /favicon.ico { access_log off; log_not_found off; }
