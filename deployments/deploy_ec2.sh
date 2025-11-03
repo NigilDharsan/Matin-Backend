@@ -16,7 +16,7 @@ IFS=$'\n\t'
 # === CONFIG ===
 # Edit these values as needed or export them before running the script
 GIT_REPO=${GIT_REPO:-""}                # e.g. https://github.com/you/repo.git (optional)
-APP_DIR=${APP_DIR:-/home/ubuntu/django-ninja-dealer}
+APP_DIR=${APP_DIR:-/home/ubuntu/Matin-Backend}
 DEPLOY_USER=${DEPLOY_USER:-ubuntu}
 PYTHON=${PYTHON:-python3}
 VENV_DIR="$APP_DIR/venv"

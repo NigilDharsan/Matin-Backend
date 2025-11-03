@@ -19,6 +19,6 @@ set DJANGO_SUPERUSER_EMAIL=admin@example.com
 python manage.py createsuperuser --noinput
 
 echo Starting Django server...
-python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
 
 pause
