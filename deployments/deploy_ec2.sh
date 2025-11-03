@@ -23,7 +23,7 @@ VENV_DIR="$APP_DIR/venv"
 PROJECT_DIR=${PROJECT_DIR:-$APP_DIR}
 PROJECT_MODULE=${PROJECT_MODULE:-dealer_project}  # Django project module that contains wsgi.py
 SOCKET_FILE=${SOCKET_FILE:-/run/gunicorn.sock}
-DOMAIN=${DOMAIN:-_}   # server_name for nginx; use your domain if available
+DOMAIN=${DOMAIN:-3.80.137.153}   # server_name for nginx; use your domain if available
 NUM_WORKERS=${NUM_WORKERS:-3}
 
 echo "Starting deployment script"
