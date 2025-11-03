@@ -61,6 +61,10 @@ USE_I18N = True
 USE_TZ = True
 STATIC_URL = '/static/'
 
+# Directory where `manage.py collectstatic` will gather static files for production
+# Must be an absolute filesystem path. Collectstatic will fail if this is not set.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # API Authentication settings

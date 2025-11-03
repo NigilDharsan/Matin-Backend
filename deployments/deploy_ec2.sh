@@ -78,6 +78,9 @@ DJANGO_SUPERUSER_PASSWORD=${DJANGO_SUPERUSER_PASSWORD:-admin}
 DJANGO_SUPERUSER_EMAIL=${DJANGO_SUPERUSER_EMAIL:-admin@example.com}
 
 sudo -H -u $DEPLOY_USER bash -lc "${ACTIVATE_CMD} && cd \"$APP_DIR\" && echo 'Running migrate' && python manage.py migrate --noinput"
+# Ensure STATIC_ROOT exists and is writable by the deploy user before collectstatic
+$SUDO mkdir -p "$APP_DIR/staticfiles"
+$SUDO chown -R $DEPLOY_USER:$DEPLOY_USER "$APP_DIR/staticfiles"
 sudo -H -u $DEPLOY_USER bash -lc "${ACTIVATE_CMD} && cd \"$APP_DIR\" && python manage.py collectstatic --noinput"
 
 # Create superuser non-interactive if it does not exist
@@ -119,9 +122,9 @@ server {
     server_name $DOMAIN;
 
     location = /favicon.ico { access_log off; log_not_found off; }
-    location /static/ {
-        alias $APP_DIR/static/;
-    }
+  location /static/ {
+    alias $APP_DIR/staticfiles/;
+  }
 
     location / {
         include proxy_params;
