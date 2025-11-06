@@ -160,6 +160,11 @@ class DetailsSchema(Schema):
     branches: List[BranchResponseSchema]
     dealers: List[DealerResponseSchema]
 
+class DetailsResponse(Schema):
+    status: bool
+    message: str
+    data: DetailsSchema
+
 # Filter Schemas
 class DealerFilterSchema(Schema):
     branch_id: Optional[int] = None

@@ -6,6 +6,7 @@ from django.db.models import Sum
 from .schemas import (
     BranchResponseSchema,
     DealerResponseSchema,
+    DetailsResponse,
     DetailsSchema,
     ProductSupplyResponseSchema,
     RoleResponseSchema,
@@ -99,14 +100,20 @@ def login(request, username:str, password:str):
             'data': token_data.dict()
         }
 
-@router.get('/details',response=DetailsSchema)
+@router.get('/details',response=DetailsResponse)
 def list_roles(request):
     response = {
         "roles": [_role_to_dict(r) for r in Role.objects.all()],
         "branches": [_branch_to_dict(b) for b in Branch.objects.all()],
         "dealers": [_dealer_to_dict(d) for d in Dealer.objects.all()]
     }
-    return response
+             
+    return {
+            'status': True,
+            'message': 'Datas retrieved successfully',
+            'data': response
+        }
+
 
 @router.post('/roles',response=RoleResponseSchema)
 def add_role(request,data:RoleSchema):
@@ -174,6 +181,7 @@ def dashboard_counts(request):
             .annotate(total=Sum('count'))
             .order_by('-total')
         )
+        print("DEBUG PRODUCT COUNTS:", list(product_counts))  # 👈 Add this line
         response = {
                 'vehicle_count': 0,
                 'battery_count': 0,
@@ -181,10 +189,11 @@ def dashboard_counts(request):
             }
         
         for p in product_counts:
-            name = p['product_name'].lower()
+            name = p['product_name'].strip().lower()
             total = p['total'] or 0
-            if name in response:
-                response[f'{name}_count'] = total
+            key = f"{name}_count"  
+            if key in response:
+                response[key] = total  
 
         response.update(
             {
