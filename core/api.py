@@ -167,20 +167,39 @@ def add_supply(request, data: ProductSupplySchema):
 @router.get('/dashboard')
 def dashboard_counts(request):
     # aggregate vehicle counts per product_name by summing the `count` field
-    product_counts = (
-        ProductSupply.objects
-        .values('product_name')
-        .annotate(total=Sum('count'))
-        .order_by('-total')
-    )
-    response = {
-        f"{i['product_name']}_count" : i['total']
-        for i in product_counts
-    }
-    response.update(
-        {
-        'dealer_count': Dealer.objects.count(),
-        'branch_count': Branch.objects.count()
-    }
-    )
-    return response
+    try:
+        product_counts = (
+            ProductSupply.objects
+            .values('product_name')
+            .annotate(total=Sum('count'))
+            .order_by('-total')
+        )
+        response = {
+                'vehicle_count': 0,
+                'battery_count': 0,
+                'charger_count': 0,
+            }
+        
+        for p in product_counts:
+            name = p['product_name'].lower()
+            total = p['total'] or 0
+            if name in response:
+                response[f'{name}_count'] = total
+
+        response.update(
+            {
+            'dealer_count': Dealer.objects.count(),
+            'branch_count': Branch.objects.count()
+            }
+        )
+        return {
+                'status': True,
+                'message': 'Dashboard counts fetched successfully',
+                'data': response
+        }
+    except Exception as e:
+        # handle error gracefully
+        return {
+            'status': False,
+            'message': f'Error fetching dashboard counts: {str(e)}',
+        }
