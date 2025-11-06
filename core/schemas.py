@@ -172,3 +172,19 @@ class ProductSupplyFilterSchema(Schema):
     from_date: Optional[date] = None
     to_date: Optional[date] = None
 
+class UserInfo(Schema):
+    id: int
+    username: str
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    is_staff: bool
+    is_active: bool
+    
+    class Config:
+        from_attributes = True  # Enables from_orm() method
+
+class TokenResponse(Schema):
+    access: str
+    refresh: str
+    user: UserInfo

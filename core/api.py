@@ -13,6 +13,8 @@ from .schemas import (
     BranchSchema,
     DealerInSchema,
     ProductSupplySchema,
+    TokenResponse,
+    UserInfo,
 )
 from .responses import BaseResponseSchema, PaginatedResponseSchema
 from .utils import paginate_queryset, create_paginated_response
@@ -80,9 +82,22 @@ def _supply_to_dict(s: ProductSupply) -> dict:
 def login(request, username:str, password:str):
     user=authenticate(username=username,password=password)
     if not user:
-        return {'error':'Invalid credentials'}
+        return {
+            'status': False,
+            'message': 'Invalid credentials',
+        }
     refresh=RefreshToken.for_user(user)
-    return {'access':str(refresh.access_token),'refresh':str(refresh)}
+    token_data = TokenResponse(
+        access=str(refresh.access_token),
+        refresh=str(refresh),
+        user=UserInfo.from_orm(user)
+    )
+
+    return 200, {
+            'status': True,
+            'message': 'Login successful',
+            'data': token_data.dict()
+        }
 
 @router.get('/details',response=DetailsSchema)
 def list_roles(request):
