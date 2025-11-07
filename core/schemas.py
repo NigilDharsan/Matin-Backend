@@ -193,3 +193,7 @@ class TokenResponse(Schema):
     access: str
     refresh: str
     user: UserInfo
+
+class LoginRequest(Schema):
+    username: str
+    password: str

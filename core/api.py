@@ -8,6 +8,7 @@ from .schemas import (
     DealerResponseSchema,
     DetailsResponse,
     DetailsSchema,
+    LoginRequest,
     ProductSupplyResponseSchema,
     RoleResponseSchema,
     RoleSchema,
@@ -80,7 +81,12 @@ def _supply_to_dict(s: ProductSupply) -> dict:
     }
 
 @auth_router.post('/login')
-def login(request, username:str, password:str):
+def login(request,data:LoginRequest=None):
+
+    if data:
+        username = data.username
+        password = data.password
+
     user=authenticate(username=username,password=password)
     if not user:
         return {
