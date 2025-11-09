@@ -64,6 +64,16 @@ class UserInSchema(Schema):
     email: EmailStr
     password: str = Field(..., min_length=6)
 
+
+class SignupSchema(Schema):
+    username: Optional[str] = None
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    # Optional: link this user to an existing Dealer record (by id)
+    # dealer_id: Optional[int] = None
+
 class DealerInSchema(Schema):
     name: str = Field(..., min_length=1, max_length=100)
     mobile_number: str = Field(..., min_length=10, max_length=20, pattern=r'^\+?[0-9]+$')
@@ -74,6 +84,8 @@ class DealerInSchema(Schema):
     pincode: Optional[str] = Field(None, pattern=r'^\d{6}$')
     state: Optional[str] = Field(None, max_length=100)
     branch: int = Field(..., gt=0)
+    # Optional user id to associate an AdminUser account to this Dealer
+    # user: Optional[int] = None
 
 class CustomerInSchema(Schema):
     name: str = Field(..., min_length=1, max_length=150)
@@ -125,6 +137,7 @@ class DealerResponseSchema(Schema):
     pincode: Optional[str] = None
     state: Optional[str] = None
     branch: int
+    # user_id: Optional[int] = None
     created_at: date
     branch_name: Optional[str] = None
 
