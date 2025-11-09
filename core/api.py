@@ -220,7 +220,7 @@ def add_dealer(request,data:DealerInSchema):
         obj = Dealer.objects.create(branch_id=branch_id, created_by=user, **payload)
         # Create user for this dealer
         User = get_user_model()
-        username = payload.get('email').split('@')[0]
+        username = payload.get('mobile')
         
         # Check if username exists
         if User.objects.filter(username=username).exists():
@@ -232,7 +232,7 @@ def add_dealer(request,data:DealerInSchema):
         user = User.objects.create_user(
             username=username,
             email=payload.get('email'),
-            password='dealer123',  # Default password
+            password=payload.get('mobile'),
             first_name=payload.get('name', ''),
         )
         
