@@ -108,15 +108,48 @@ class ProductRegisterSchema(Schema):
     dealer_id: int
     customer_id: int
 
+# class ProductSupplySchema(Schema):
+#     dealer: int = Field(..., gt=0)
+#     product_name: str = Field(..., min_length=1, max_length=150)
+#     invoice_number: str = Field(..., min_length=1, max_length=50)
+#     serial_number: str = Field(..., min_length=1, max_length=150)
+#     vehicle_model: Optional[str] = None
+#     purchase_date: Optional[date] = None
+#     remarks: Optional[str] = None
+#     count: int = Field(default=1, gt=0)
+    
 class ProductSupplySchema(Schema):
-    dealer: int = Field(..., gt=0)
-    product_name: str = Field(..., min_length=1, max_length=150)
-    invoice_number: str = Field(..., min_length=1, max_length=50)
-    serial_number: str = Field(..., min_length=1, max_length=150)
-    vehicle_model: Optional[str] = None
+    dealer: int
+    product_name: str
+    invoice_number: str
+    serial_number: str
     purchase_date: Optional[date] = None
+    count: int = 1
+
+    # Vehicle info
+    chase_number: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    vehicle_variant: Optional[str] = None
+    vehicle_warranty: Optional[str] = None
+    controller: Optional[str] = None
+    motor: Optional[str] = None
+
+    # Battery info
+    battery_number: Optional[str] = None
+    battery_model: Optional[str] = None
+    battery_variant: Optional[str] = None
+    battery_warranty: Optional[str] = None
+    bulging_warranty: Optional[str] = None
+
+    # Charger info
+    charger_number: Optional[str] = None
+    charger_model: Optional[str] = None
+    charger_type: Optional[str] = None
+    charger_variant: Optional[str] = None
+    charger_warranty: Optional[str] = None
+
     remarks: Optional[str] = None
-    count: int = Field(default=1, gt=0)
+
 
 # Response Schemas with IDs
 class BranchResponseSchema(BranchSchema):
@@ -126,8 +159,8 @@ class BranchResponseSchema(BranchSchema):
 class RoleResponseSchema(RoleSchema):
     id: int
 
-class DealerResponseSchema(Schema):
-    id: int
+class DealerSchema(Schema):
+    id: Optional[int] = None
     name: str
     mobile_number: str
     company_name: Optional[str] = None
@@ -136,10 +169,18 @@ class DealerResponseSchema(Schema):
     address_line2: Optional[str] = None
     pincode: Optional[str] = None
     state: Optional[str] = None
-    branch: int
-    # user_id: Optional[int] = None
-    created_at: date
+    branch_id: Optional[int] = None
     branch_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DealerResponseSchema(Schema):
+    status: str
+    message: str
+    data: List[DealerSchema] = []
+
 
 class ProductSupplyResponseSchema(Schema):
     id: int
@@ -148,11 +189,26 @@ class ProductSupplyResponseSchema(Schema):
     product_name: str
     invoice_number: str
     serial_number: str
-    vehicle_model: Optional[str] = None
     purchase_date: Optional[date] = None
-    remarks: Optional[str] = None
     count: int
-    created_at: date
+    chase_number: Optional[str] = None
+    vehicle_model: Optional[str] = None
+    vehicle_variant: Optional[str] = None
+    vehicle_warranty: Optional[str] = None
+    controller: Optional[str] = None
+    motor: Optional[str] = None
+    battery_number: Optional[str] = None
+    battery_model: Optional[str] = None
+    battery_variant: Optional[str] = None
+    battery_warranty: Optional[str] = None
+    bulging_warranty: Optional[str] = None
+    charger_number: Optional[str] = None
+    charger_model: Optional[str] = None
+    charger_type: Optional[str] = None
+    charger_variant: Optional[str] = None
+    charger_warranty: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: Optional[date] = None
 
 # List Response Schemas
 class BranchListSchema(Schema):

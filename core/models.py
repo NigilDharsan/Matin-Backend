@@ -47,19 +47,65 @@ class Dealer(models.Model):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='created_dealers')
     def __str__(self):return f"{self.name} ({self.mobile_number})"
 
+# class ProductSupply(models.Model):
+#     id = models.BigAutoField(primary_key=True)
+#     # ensure dealer FK is not unique so multiple ProductSupply rows can reference the same Dealer
+#     dealer=models.ForeignKey(Dealer,on_delete=models.CASCADE,related_name='supplies', unique=False)
+#     product_name=models.CharField(max_length=150)
+#     invoice_number=models.CharField(max_length=50)
+#     serial_number=models.CharField(max_length=150,unique=True)
+#     vehicle_model=models.CharField(max_length=150,blank=True,null=True)
+#     purchase_date=models.DateField(blank=True,null=True)
+#     remarks=models.TextField(blank=True,null=True)
+#     count=models.PositiveIntegerField(default=1)
+#     created_at=models.DateTimeField(auto_now_add=True)
+#     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+
+#     def __str__(self):
+#         return self.product_name
+
 class ProductSupply(models.Model):
     id = models.BigAutoField(primary_key=True)
-    # ensure dealer FK is not unique so multiple ProductSupply rows can reference the same Dealer
-    dealer=models.ForeignKey(Dealer,on_delete=models.CASCADE,related_name='supplies', unique=False)
-    product_name=models.CharField(max_length=150)
-    invoice_number=models.CharField(max_length=50)
-    serial_number=models.CharField(max_length=150,unique=True)
-    vehicle_model=models.CharField(max_length=150,blank=True,null=True)
-    purchase_date=models.DateField(blank=True,null=True)
-    remarks=models.TextField(blank=True,null=True)
-    count=models.PositiveIntegerField(default=1)
-    created_at=models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    dealer = models.ForeignKey(Dealer, on_delete=models.CASCADE, related_name='supplies', unique=False)
+
+    # Product info
+    product_name = models.CharField(max_length=150)
+    invoice_number = models.CharField(max_length=50)
+    serial_number = models.CharField(max_length=150, unique=True)
+    purchase_date = models.DateField(blank=True, null=True)
+    count = models.PositiveIntegerField(default=1)
+
+    # Vehicle fields
+    chase_number = models.CharField(max_length=150, blank=True, null=True)
+    chase_number = models.CharField(max_length=100, null=True, blank=True)  # ← this may have been added
+
+    vehicle_model = models.CharField(max_length=150, blank=True, null=True)
+    vehicle_variant = models.CharField(max_length=150, blank=True, null=True)
+    vehicle_warranty = models.CharField(max_length=150, blank=True, null=True)
+
+    # Controller & Motor
+    controller = models.CharField(max_length=150, blank=True, null=True)
+    motor = models.CharField(max_length=150, blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+
+    # Battery details
+    battery_number = models.CharField(max_length=150, blank=True, null=True)
+    battery_model = models.CharField(max_length=150, blank=True, null=True)
+    battery_variant = models.CharField(max_length=150, blank=True, null=True)
+    battery_warranty = models.CharField(max_length=150, blank=True, null=True)
+    bulging_warranty = models.CharField(max_length=150, blank=True, null=True)
+
+    # Charger details
+    charger_number = models.CharField(max_length=150, blank=True, null=True)
+    charger_model = models.CharField(max_length=150, blank=True, null=True)
+    charger_type = models.CharField(max_length=150, blank=True, null=True)
+    charger_variant = models.CharField(max_length=150, blank=True, null=True)
+    charger_warranty = models.CharField(max_length=150, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
+    )
 
     def __str__(self):
-        return self.product_name
+        return f"{self.product_name} - {self.serial_number}"

@@ -78,11 +78,26 @@ def _supply_to_dict(s: ProductSupply) -> dict:
         'product_name': s.product_name,
         'invoice_number': s.invoice_number,
         'serial_number': s.serial_number,
-        'vehicle_model': s.vehicle_model,
         'purchase_date': s.purchase_date,
-        'remarks': s.remarks,
         'count': s.count,
-        'created_at': s.created_at.date() if s.created_at else None
+        'chase_number': s.chase_number,
+        'vehicle_model': s.vehicle_model,
+        'vehicle_variant': s.vehicle_variant,
+        'vehicle_warranty': s.vehicle_warranty,
+        'controller': s.controller,
+        'motor': s.motor,
+        'battery_number': s.battery_number,
+        'battery_model': s.battery_model,
+        'battery_variant': s.battery_variant,
+        'battery_warranty': s.battery_warranty,
+        'bulging_warranty': s.bulging_warranty,
+        'charger_number': s.charger_number,
+        'charger_model': s.charger_model,
+        'charger_type': s.charger_type,
+        'charger_variant': s.charger_variant,
+        'charger_warranty': s.charger_warranty,
+        'remarks': s.remarks,
+        'created_at': s.created_at.date() if s.created_at else None,
     }
 
 @auth_router.post('/login')
@@ -207,6 +222,25 @@ def add_branch(request,data:BranchSchema):
     obj = Branch.objects.create(created_by=user, **data.dict())
     return _branch_to_dict(obj)
 
+@router.get('/dealers', response=DealerResponseSchema)
+def list_dealers(request):
+    user = getattr(request, 'user', None)
+    if user is None or not getattr(user, 'is_authenticated', False):
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        dealers_qs = Dealer.objects.all()
+
+        return {
+            'status': 'success',
+            'message': 'dealer(s) retrieved successfully',
+            'data': [_dealer_to_dict(s) for s in dealers_qs],
+        }
+    except Exception as e:
+        raise HttpError(400, f"Error listing dealers: {e}")
+
+
+
 @router.post('/dealers',response=DealerResponseSchema)
 def add_dealer(request,data:DealerInSchema):
     user = getattr(request, 'user', None)
@@ -241,7 +275,10 @@ def add_dealer(request,data:DealerInSchema):
         obj.save()
     else:
         raise HttpError(400, "Branch ID required")
-    return _dealer_to_dict(obj)
+    return {
+            'status': 'success',
+            'message': 'dealer created successfully',
+        }
 
 @router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
 def list_supplies(request, page: int = 1, page_size: int = 10):
@@ -270,6 +307,7 @@ def list_supplies(request, page: int = 1, page_size: int = 10):
         page_size=page_size,
         url_path="/api/supplies"
     )
+    
     return PaginatedResponseSchema.success_response(
         data=[_supply_to_dict(s) for s in items],
         pagination=pagination,
