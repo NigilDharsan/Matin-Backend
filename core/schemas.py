@@ -50,6 +50,7 @@ from typing import Optional, List
 from datetime import date
 from pydantic import EmailStr, constr
 from django.core.validators import MinLengthValidator, RegexValidator
+from pydantic import BaseModel
 
 # Base Schemas for creation/update
 class BranchSchema(Schema):
@@ -227,7 +228,7 @@ class ProductSupplyListSchema(Schema):
 class DetailsSchema(Schema):
     roles: List[RoleResponseSchema]
     branches: List[BranchResponseSchema]
-    dealers: List[DealerResponseSchema]
+    dealers: List[DealerSchema]
 
 class DetailsResponse(Schema):
     status: bool
@@ -266,3 +267,6 @@ class TokenResponse(Schema):
 class LoginRequest(Schema):
     username: str
     password: str
+
+class RefreshRequest(BaseModel):
+    refresh: str

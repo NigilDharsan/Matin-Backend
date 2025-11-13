@@ -1,3 +1,4 @@
+from tokenize import TokenError
 from ninja import Router
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -9,6 +10,7 @@ from .schemas import (
     DetailsResponse,
     DetailsSchema,
     LoginRequest,
+    RefreshRequest,
     SignupSchema,
     ProductSupplyResponseSchema,
     RoleResponseSchema,
@@ -126,6 +128,56 @@ def login(request,data:LoginRequest=None):
             'data': token_data.dict()
         }
 
+@auth_router.post("/refresh")
+def refresh_token(request, data: RefreshRequest):
+    """
+    Accepts a refresh token and returns new access & refresh tokens
+    """
+    try:
+        old_refresh = RefreshToken(data.refresh)
+        user_id = old_refresh.get("user_id")
+
+        if not user_id:
+            return 401, {
+                "status": False,
+                "message": "Invalid token: user_id missing"
+            }
+
+        # ✅ Fetch the user using Django’s user model
+        user_model = get_user_model()
+        user = user_model.objects.get(id=user_id)
+
+        # ✅ Generate new tokens
+        new_refresh = RefreshToken.for_user(user)
+        new_access = str(new_refresh.access_token)
+
+        return 200, {
+            "status": True,
+            "message": "Access and refresh tokens refreshed successfully",
+            "data": {
+                "access": new_access,
+                "refresh": str(new_refresh)
+            }
+        }
+
+    except get_user_model().DoesNotExist:
+        return 404, {
+            "status": False,
+            "message": "User not found"
+        }
+
+    except TokenError as e:
+        return 401, {
+            "status": False,
+            "message": "Invalid or expired refresh token",
+            "error": str(e)
+        }
+
+    except Exception as e:
+        return 500, {
+            "status": False,
+            "message": f"Unexpected error: {str(e)}"
+        }
 
 @auth_router.post('/signup', response={201: BaseResponseSchema[TokenResponse], 400: dict})
 def signup(request, data: SignupSchema):
@@ -278,6 +330,8 @@ def add_dealer(request,data:DealerInSchema):
     return {
             'status': 'success',
             'message': 'dealer created successfully',
+            'data': [_dealer_to_dict(obj)],
+
         }
 
 @router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
