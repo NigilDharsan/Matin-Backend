@@ -89,13 +89,13 @@ SIMPLE_JWT = {
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # For Production: Use SMTP backend (uncomment and configure below)
-# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-# EMAIL_HOST = 'smtp.gmail.com'  # Gmail SMTP server
-# EMAIL_PORT = 587
-# EMAIL_USE_TLS = True
-# EMAIL_HOST_USER = 'your-email@gmail.com'  # Replace with your email
-# EMAIL_HOST_PASSWORD = 'your-app-password'  # Replace with your Gmail app password
-# DEFAULT_FROM_EMAIL = 'your-email@gmail.com'  # Replace with your email
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Gmail SMTP server
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'harsan.nn@gmail.com'  # Replace with your email
+EMAIL_HOST_PASSWORD = 'tdaojcdaswxszlrt'  # Replace with your Gmail app password
+DEFAULT_FROM_EMAIL = 'matin.cbe@gmail.com'  # Replace with your email
 
 # For Gmail App Password:
 # 1. Go to https://myaccount.google.com/apppasswords
