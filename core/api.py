@@ -190,8 +190,11 @@ def reset_password(request, data: ResetPasswordRequest):
     if not email_service.is_otp_valid(user, data.otp):
         return 400, {"status": False, "message": "Invalid or expired OTP"}
 
-    # Update password
+    # Update password and save
     user.set_password(data.new_password)
+    user.save()  # ← This was missing!
+    
+    # Clear OTP after successful password reset
     email_service.clear_otp(user)
 
     return 200, BaseResponseSchema.success_response(
