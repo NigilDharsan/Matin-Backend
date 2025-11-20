@@ -49,7 +49,7 @@ User = get_user_model()
 # Authentication Endpoints
 # ============================================================================
 
-@auth_router.post('/login', response={200: BaseResponseSchema[TokenResponse], 400: dict})
+@auth_router.post('/login', response={200: dict, 400: dict})
 def login(request, data: LoginRequest):
     """Authenticate user and return JWT tokens"""
     user = authenticate(username=data.username, password=data.password)
@@ -61,16 +61,25 @@ def login(request, data: LoginRequest):
         }
     
     refresh = RefreshToken.for_user(user)
-    token_data = TokenResponse(
-        access=str(refresh.access_token),
-        refresh=str(refresh),
-        user=UserInfo.from_orm(user)
-    )
+    token_data = {
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_staff': user.is_staff,
+            'is_active': user.is_active,
+        }
+    }
 
-    return 200, BaseResponseSchema.success_response(
-        data=token_data,
-        message='Login successful'
-    )
+    return 200, {
+        'status': True,
+        'message': 'Login successful',
+        'data': token_data
+    }
 
 
 @auth_router.post("/refresh", response={200: BaseResponseSchema, 401: dict, 404: dict, 500: dict})
@@ -276,8 +285,8 @@ def add_branch(request, data: BranchSchema):
 # ============================================================================
 
 @router.get('/dealers', response=PaginatedResponseSchema[list[DealerSchema]])
-def list_dealers(request, page: int = 1, page_size: int = 10, branch_id: int = None):
-    """List dealers with pagination and optional branch filter"""
+def list_dealers(request, page: int = 1, page_size: int = 10, branch_id: int = None, search: str = None):
+    """List dealers with pagination, branch filter, and search"""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -288,6 +297,14 @@ def list_dealers(request, page: int = 1, page_size: int = 10, branch_id: int = N
         # Filter by branch if provided
         if branch_id:
             dealers_qs = dealers_qs.filter(branch_id=branch_id)
+        
+        # Search by name, mobile_number, or company_name
+        if search:
+            dealers_qs = dealers_qs.filter(
+                Q(name__icontains=search) |
+                Q(mobile_number__icontains=search) |
+                Q(company_name__icontains=search)
+            )
 
         items, pagination = paginate_queryset(
             dealers_qs,
@@ -355,13 +372,86 @@ def add_dealer(request, data: DealerInSchema):
         raise HttpError(400, f"Error creating dealer: {e}")
 
 
+@router.put('/dealers/{dealer_id}', response=BaseResponseSchema[DealerSchema])
+def update_dealer(request, dealer_id: int, data: DealerInSchema):
+    """Update an existing dealer"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        dealer = Dealer.objects.get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if dealer.created_by != user:
+                raise HttpError(403, "You don't have permission to edit this dealer")
+
+        payload = data.dict()
+        branch_id = payload.pop('branch', None)
+        
+        # Update dealer fields
+        for field, value in payload.items():
+            setattr(dealer, field, value)
+        
+        if branch_id:
+            dealer.branch_id = branch_id
+        
+        dealer.save()
+
+        return BaseResponseSchema.success_response(
+            data=serializer.dealer_to_dict(dealer),
+            message="Dealer updated successfully"
+        )
+    except Dealer.DoesNotExist:
+        raise HttpError(404, "Dealer not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error updating dealer: {e}")
+
+
+@router.delete('/dealers/{dealer_id}', response=BaseResponseSchema)
+def delete_dealer(request, dealer_id: int):
+    """Delete a dealer"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        dealer = Dealer.objects.get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if dealer.created_by != user:
+                raise HttpError(403, "You don't have permission to delete this dealer")
+
+        dealer_name = dealer.name
+        
+        # Delete associated user if exists
+        if dealer.user:
+            dealer.user.delete()
+        
+        dealer.delete()
+
+        return BaseResponseSchema.success_response(
+            message=f"Dealer '{dealer_name}' deleted successfully"
+        )
+    except Dealer.DoesNotExist:
+        raise HttpError(404, "Dealer not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error deleting dealer: {e}")
+
+
 # ============================================================================
 # Product Supply Endpoints
 # ============================================================================
 
 @router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
-def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = None):
-    """List product supplies with pagination and optional branch filter"""
+def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = None, search: str = None):
+    """List product supplies with pagination, branch filter, and search"""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -385,6 +475,17 @@ def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = 
     # Filter by branch if provided
     if branch_id:
         supplies_qs = supplies_qs.filter(dealer__branch_id=branch_id)
+    
+    # Search by dealer name, mobile number, company name, product name, serial number, or invoice number
+    if search:
+        supplies_qs = supplies_qs.filter(
+            Q(dealer__name__icontains=search) |
+            Q(dealer__mobile_number__icontains=search) |
+            Q(dealer__company_name__icontains=search) |
+            Q(product_name__icontains=search) |
+            Q(serial_number__icontains=search) |
+            Q(invoice_number__icontains=search)
+        )
 
     items, pagination = paginate_queryset(
         supplies_qs,
@@ -443,6 +544,75 @@ def add_supplies(request, data: list[ProductSupplySchema]):
             message=str(e),
             code="SUPPLY_CREATE_ERROR"
         )
+
+
+@router.put('/supplies/{supply_id}', response=BaseResponseSchema[ProductSupplyResponseSchema])
+def update_supply(request, supply_id: int, data: ProductSupplySchema):
+    """Update an existing product supply"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        supply = ProductSupply.objects.select_related('dealer').get(id=supply_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if supply.created_by != user:
+                raise HttpError(403, "You don't have permission to edit this supply")
+
+        payload = data.dict()
+        dealer_id = payload.pop('dealer', None)
+        
+        # Update supply fields
+        for field, value in payload.items():
+            setattr(supply, field, value)
+        
+        if dealer_id:
+            supply.dealer_id = dealer_id
+        
+        supply.save()
+
+        return BaseResponseSchema.success_response(
+            data=serializer.supply_to_dict(supply),
+            message="Product supply updated successfully"
+        )
+    except ProductSupply.DoesNotExist:
+        raise HttpError(404, "Product supply not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error updating supply: {e}")
+
+
+@router.delete('/supplies/{supply_id}', response=BaseResponseSchema)
+def delete_supply(request, supply_id: int):
+    """Delete a product supply"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        supply = ProductSupply.objects.get(id=supply_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if supply.created_by != user:
+                raise HttpError(403, "You don't have permission to delete this supply")
+
+        product_name = supply.product_name
+        serial_number = supply.serial_number
+        supply.delete()
+
+        return BaseResponseSchema.success_response(
+            message=f"Product supply '{product_name}' (S/N: {serial_number}) deleted successfully"
+        )
+    except ProductSupply.DoesNotExist:
+        raise HttpError(404, "Product supply not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error deleting supply: {e}")
 
 
 # ============================================================================
