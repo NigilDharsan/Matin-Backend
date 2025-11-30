@@ -40,9 +40,13 @@ class DealerAdmin(admin.ModelAdmin):
 
 @admin.register(ProductSupply)
 class ProductSupplyAdmin(admin.ModelAdmin):
-    list_display = ("id", "product_name", "invoice_number", "dealer", "purchase_date", "count")
-    list_filter = ("dealer__branch",)
+    list_display = (
+        "id", "product_name", "dealer", "invoice_number", "serial_number",
+        "vehicle_model", "vehicle_variant", "battery_model", "charger_model", "purchase_date","count"
+    )
+    list_filter = ("dealer__branch", "purchase_date")
     search_fields = ("product_name", "invoice_number", "serial_number", "dealer__name")
+
 
 
 admin.site.site_header = "Dealer Management Admin"

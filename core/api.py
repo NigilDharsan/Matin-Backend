@@ -1,137 +1,136 @@
+from tokenize import TokenError
 from ninja import Router
-from django.contrib.auth import authenticate
-from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Role,Branch,Dealer,ProductSupply
+from django.contrib.auth import authenticate, get_user_model
+from django.db import transaction
 from django.db.models import Sum, Q
+from django.utils import timezone
+from rest_framework_simplejwt.tokens import RefreshToken
+from ninja.errors import HttpError
+
+from .models import Role, Branch, Dealer, ProductSupply
 from .schemas import (
-    BranchResponseSchema,
-    DealerResponseSchema,
-    DetailsResponse,
-    DetailsSchema,
     LoginRequest,
+    RefreshRequest,
     SignupSchema,
-    ProductSupplyResponseSchema,
-    RoleResponseSchema,
-    RoleSchema,
-    BranchSchema,
-    DealerInSchema,
-    ProductSupplySchema,
+    ForgotPasswordRequest,
+    VerifyOTPRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserInfo,
+    RoleSchema,
+    RoleResponseSchema,
+    BranchSchema,
+    BranchResponseSchema,
+    DealerInSchema,
+    DealerSchema,
+    ProductSupplySchema,
+    ProductSupplyResponseSchema,
+    DetailsResponse,
 )
 from .responses import BaseResponseSchema, PaginatedResponseSchema
-from .utils import paginate_queryset, create_paginated_response
+from .utils import paginate_queryset
 from .auth import get_auth_class
-from ninja.errors import HttpError
-from django.contrib.auth import get_user_model
-from django.db import transaction
+from .serializers import ModelSerializer
+from .services.email_service import EmailService
 
-# Create an unprotected router for login
+# Initialize serializer and email service
+serializer = ModelSerializer()
+email_service = EmailService()
+
+# Routers
 auth_router = Router()
-
-# Main router - uses dynamic auth based on settings
 auth_class = get_auth_class()
-if auth_class:
-    router = Router(auth=auth_class())
-else:
-    router = Router()  # No authentication when API_AUTHENTICATION_ENABLED is False
+router = Router(auth=auth_class()) if auth_class else Router()
+
+User = get_user_model()
 
 
-def _role_to_dict(role: Role) -> dict:
-    return {
-        'id': role.id,
-        'name': role.name,
-    }
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
 
-
-def _branch_to_dict(branch: Branch) -> dict:
-    return {
-        'id': branch.id,
-        'name': branch.name,
-        'address': branch.address,
-    }
-
-
-def _dealer_to_dict(dealer: Dealer) -> dict:
-    return {
-        'id': dealer.id,
-        'name': dealer.name,
-        'mobile_number': dealer.mobile_number,
-        'company_name': dealer.company_name,
-        'email': dealer.email,
-        'address_line1': dealer.address_line1,
-        'address_line2': dealer.address_line2,
-        'pincode': dealer.pincode,
-        'state': dealer.state,
-        'branch': dealer.branch_id,
-        'user_id': dealer.user_id,
-        'created_at': dealer.created_at.date() if dealer.created_at else None,
-        'branch_name': dealer.branch.name if dealer.branch else None,
-    }
-
-
-def _supply_to_dict(s: ProductSupply) -> dict:
-    return {
-        'id': s.id,
-        'dealer': s.dealer_id,
-        'dealer_name': s.dealer.name if s.dealer else None,
-        'product_name': s.product_name,
-        'invoice_number': s.invoice_number,
-        'serial_number': s.serial_number,
-        'vehicle_model': s.vehicle_model,
-        'purchase_date': s.purchase_date,
-        'remarks': s.remarks,
-        'count': s.count,
-        'created_at': s.created_at.date() if s.created_at else None
-    }
-
-@auth_router.post('/login')
-def login(request,data:LoginRequest=None):
-
-    if data:
-        username = data.username
-        password = data.password
-
-    user=authenticate(username=username,password=password)
+@auth_router.post('/login', response={200: dict, 400: dict})
+def login(request, data: LoginRequest):
+    """Authenticate user and return JWT tokens"""
+    user = authenticate(username=data.username, password=data.password)
+    
     if not user:
-        return {
+        return 400, {
             'status': False,
             'message': 'Invalid credentials',
         }
-    refresh=RefreshToken.for_user(user)
-    token_data = TokenResponse(
-        access=str(refresh.access_token),
-        refresh=str(refresh),
-        user=UserInfo.from_orm(user)
-    )
+    
+    refresh = RefreshToken.for_user(user)
+    token_data = {
+        'access': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'is_staff': user.is_staff,
+            'is_active': user.is_active,
+        }
+    }
 
     return 200, {
-            'status': True,
-            'message': 'Login successful',
-            'data': token_data.dict()
-        }
+        'status': True,
+        'message': 'Login successful',
+        'data': token_data
+    }
+
+
+@auth_router.post("/refresh", response={200: BaseResponseSchema, 401: dict, 404: dict, 500: dict})
+def refresh_token(request, data: RefreshRequest):
+    """Refresh access token using refresh token"""
+    try:
+        old_refresh = RefreshToken(data.refresh)
+        user_id = old_refresh.get("user_id")
+
+        if not user_id:
+            return 401, {
+                "status": False,
+                "message": "Invalid token: user_id missing"
+            }
+
+        user = User.objects.get(id=user_id)
+        new_refresh = RefreshToken.for_user(user)
+
+        return 200, BaseResponseSchema.success_response(
+            data={
+                "access": str(new_refresh.access_token),
+                "refresh": str(new_refresh)
+            },
+            message="Tokens refreshed successfully"
+        )
+
+    except User.DoesNotExist:
+        return 404, {"status": False, "message": "User not found"}
+    except TokenError as e:
+        return 401, {"status": False, "message": "Invalid or expired refresh token"}
+    except Exception as e:
+        return 500, {"status": False, "message": f"Unexpected error: {str(e)}"}
 
 
 @auth_router.post('/signup', response={201: BaseResponseSchema[TokenResponse], 400: dict})
 def signup(request, data: SignupSchema):
-    """Create a new AdminUser and optionally link to a Dealer via dealer_id.
-    Returns JWT tokens on success (same shape as login).
-    """
-    User = get_user_model()
-    # basic validation
+    """Register a new user"""
     username = data.username or data.email.split('@')[0]
+    
     if User.objects.filter(username=username).exists():
-        raise HttpError(400, "username already exists")
+        raise HttpError(400, "Username already exists")
     if User.objects.filter(email=data.email).exists():
-        raise HttpError(400, "email already exists")
+        raise HttpError(400, "Email already exists")
 
     try:
         user = User.objects.create_user(
             username=username,
             email=data.email,
             password=data.password,
-            first_name=(data.first_name or ""),
-            last_name=(data.last_name or ""),
+            first_name=data.first_name or "",
+            last_name=data.last_name or "",
             is_staff=True
         )
 
@@ -146,25 +145,88 @@ def signup(request, data: SignupSchema):
             data=token_data,
             message="Signup successful"
         )
-    except HttpError:
-        raise
     except Exception as e:
-        # on unexpected errors respond with 400
         raise HttpError(400, str(e))
 
-@router.get('/details',response=DetailsResponse)
-def list_roles(request):
+
+@auth_router.post('/forgot-password', response={200: BaseResponseSchema, 404: dict})
+def forgot_password(request, data: ForgotPasswordRequest):
+    """Send OTP to user's email for password reset"""
+    try:
+        user = User.objects.get(email=data.email)
+    except User.DoesNotExist:
+        return 404, {"status": False, "message": "User with this email does not exist"}
+
+    # Generate and save OTP
+    otp = email_service.generate_otp()
+    user.otp = otp
+    user.otp_created_at = timezone.now()
+    user.save(update_fields=['otp', 'otp_created_at'])
+
+    # Send OTP via email
+    if email_service.send_otp_email(user.email, otp):
+        return 200, BaseResponseSchema.success_response(
+            message="OTP sent to your email successfully"
+        )
+    else:
+        return 500, {"status": False, "message": "Failed to send OTP email"}
+
+
+@auth_router.post('/verify-otp', response={200: BaseResponseSchema, 400: dict})
+def verify_otp(request, data: VerifyOTPRequest):
+    """Verify OTP for password reset"""
+    try:
+        user = User.objects.get(email=data.email)
+    except User.DoesNotExist:
+        return 404, {"status": False, "message": "User not found"}
+
+    if email_service.is_otp_valid(user, data.otp):
+        return 200, BaseResponseSchema.success_response(
+            message="OTP verified successfully"
+        )
+    else:
+        return 400, {"status": False, "message": "Invalid or expired OTP"}
+
+
+@auth_router.post('/reset-password', response={200: BaseResponseSchema, 400: dict})
+def reset_password(request, data: ResetPasswordRequest):
+    """Reset user password after OTP verification"""
+    try:
+        user = User.objects.get(email=data.email)
+    except User.DoesNotExist:
+        return 404, {"status": False, "message": "User not found"}
+
+    if not email_service.is_otp_valid(user, data.otp):
+        return 400, {"status": False, "message": "Invalid or expired OTP"}
+
+    # Update password and save
+    user.set_password(data.new_password)
+    user.save()  # ← This was missing!
+    
+    # Clear OTP after successful password reset
+    email_service.clear_otp(user)
+
+    return 200, BaseResponseSchema.success_response(
+        message="Password reset successfully"
+    )
+
+
+# ============================================================================
+# Details Endpoint
+# ============================================================================
+
+@router.get('/details', response=DetailsResponse)
+def get_details(request):
+    """Get roles, branches, and dealers based on user permissions"""
     user = getattr(request, 'user', None)
-    if user is None or not getattr(user, 'is_authenticated', False):
+    if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
 
-    # Staff/superuser: return everything
-    if getattr(user, 'is_superuser', False):
+    if user.is_superuser:
         roles_qs = Role.objects.all()
         branches_qs = Branch.objects.all()
         dealers_qs = Dealer.objects.all()
-    elif getattr(user, 'is_staff', False):
-        # Staff can see items they created and items without creator
+    elif user.is_staff:
         roles_qs = Role.objects.filter(Q(created_by=user))
         branches_qs = Branch.objects.filter(Q(created_by=user))
         dealers_qs = Dealer.objects.filter(Q(created_by=user))
@@ -172,97 +234,258 @@ def list_roles(request):
         roles_qs = user.created_roles.all()
         branches_qs = user.created_branches.all()
         dealers_qs = user.created_dealers.all()
-    response = {
-        "roles": [_role_to_dict(r) for r in roles_qs],
-        "branches": [_branch_to_dict(b) for b in branches_qs],
-        "dealers": [_dealer_to_dict(d) for d in dealers_qs]
-    }
 
     return {
         'status': True,
         'message': 'Data retrieved successfully',
-        'data': response
+        'data': {
+            "roles": [serializer.role_to_dict(r) for r in roles_qs],
+            "branches": [serializer.branch_to_dict(b) for b in branches_qs],
+            "dealers": [serializer.dealer_to_dict(d) for d in dealers_qs]
+        }
     }
 
 
-@router.post('/roles',response=RoleResponseSchema)
-def add_role(request,data:RoleSchema):
+# ============================================================================
+# Role Endpoints
+# ============================================================================
+
+@router.post('/roles', response=RoleResponseSchema)
+def add_role(request, data: RoleSchema):
+    """Create a new role"""
     user = getattr(request, 'user', None)
-    if user is None or not getattr(user, 'is_authenticated', False):
+    if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-    if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+    if not (user.is_staff or user.is_superuser):
         raise HttpError(403, "Forbidden")
 
     obj = Role.objects.create(created_by=user, **data.dict())
-    return _role_to_dict(obj)
+    return serializer.role_to_dict(obj)
 
-@router.post('/branches',response=BranchResponseSchema)
-def add_branch(request,data:BranchSchema):
+
+# ============================================================================
+# Branch Endpoints
+# ============================================================================
+
+@router.post('/branches', response=BranchResponseSchema)
+def add_branch(request, data: BranchSchema):
+    """Create a new branch"""
     user = getattr(request, 'user', None)
-    if user is None or not getattr(user, 'is_authenticated', False):
+    if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-    if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+    if not (user.is_staff or user.is_superuser):
         raise HttpError(403, "Forbidden")
 
     obj = Branch.objects.create(created_by=user, **data.dict())
-    return _branch_to_dict(obj)
+    return serializer.branch_to_dict(obj)
 
-@router.post('/dealers',response=DealerResponseSchema)
-def add_dealer(request,data:DealerInSchema):
+
+# ============================================================================
+# Dealer Endpoints
+# ============================================================================
+
+@router.get('/dealers', response=PaginatedResponseSchema[list[DealerSchema]])
+def list_dealers(request, page: int = 1, page_size: int = 10, branch_id: int = None, search: str = None):
+    """List dealers with pagination, branch filter, and search"""
     user = getattr(request, 'user', None)
-    if user is None or not getattr(user, 'is_authenticated', False):
+    if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
-        
-    payload = data.dict()
-    # accept branch as an int id in the schema; use branch_id to create
-    branch_id = payload.pop('branch', None)
-    if branch_id is not None:
-        obj = Dealer.objects.create(branch_id=branch_id, created_by=user, **payload)
-        # Create user for this dealer
-        User = get_user_model()
-        username = payload.get('mobile_number')
-        
-        # Check if username exists
-        if User.objects.filter(username=username).exists():
-            raise HttpError(400, "Username already exists")
-        if User.objects.filter(email=payload.get('email')).exists():
-            raise HttpError(400, "Email already exists")
 
-        # Create user
-        user = User.objects.create_user(
-            username=username,
-            email=payload.get('email'),
-            password=payload.get('mobile_number'),
-            first_name=payload.get('name', ''),
-        )
+    try:
+        dealers_qs = Dealer.objects.select_related('branch').all()
         
-        # Link user to dealer
-        obj.user = user
-        obj.save()
-    else:
+        # Filter by branch if provided
+        if branch_id:
+            dealers_qs = dealers_qs.filter(branch_id=branch_id)
+        
+        # Search by name, mobile_number, or company_name
+        if search:
+            dealers_qs = dealers_qs.filter(
+                Q(name__icontains=search) |
+                Q(mobile_number__icontains=search) |
+                Q(company_name__icontains=search)
+            )
+
+        items, pagination = paginate_queryset(
+            dealers_qs,
+            page=page,
+            page_size=page_size,
+            url_path="/api/dealers"
+        )
+
+        return PaginatedResponseSchema.success_response(
+            data=[serializer.dealer_to_dict(d) for d in items],
+            pagination=pagination,
+            message="Dealers retrieved successfully"
+        )
+    except Exception as e:
+        raise HttpError(400, f"Error listing dealers: {e}")
+
+
+@router.post('/dealers', response=BaseResponseSchema[list[DealerSchema]])
+def add_dealer(request, data: DealerInSchema):
+    """Create a new dealer with associated user account"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    payload = data.dict()
+    branch_id = payload.pop('branch', None)
+    
+    if not branch_id:
         raise HttpError(400, "Branch ID required")
-    return _dealer_to_dict(obj)
+
+    try:
+        with transaction.atomic():
+            # Create dealer
+            dealer = Dealer.objects.create(
+                branch_id=branch_id,
+                created_by=user,
+                **payload
+            )
+
+            # Create user account
+            username = payload.get('mobile_number')
+            
+            if User.objects.filter(username=username).exists():
+                raise HttpError(400, "Username already exists")
+            if User.objects.filter(email=payload.get('email')).exists():
+                raise HttpError(400, "Email already exists")
+
+            dealer_user = User.objects.create_user(
+                username=username,
+                email=payload.get('email'),
+                password=payload.get('mobile_number'),
+                first_name=payload.get('name', ''),
+            )
+
+            dealer.user = dealer_user
+            dealer.save()
+
+        return BaseResponseSchema.success_response(
+            data=[serializer.dealer_to_dict(dealer)],
+            message="Dealer created successfully"
+        )
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error creating dealer: {e}")
+
+
+@router.put('/dealers/{dealer_id}', response=BaseResponseSchema[DealerSchema])
+def update_dealer(request, dealer_id: int, data: DealerInSchema):
+    """Update an existing dealer"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        dealer = Dealer.objects.get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if dealer.created_by != user:
+                raise HttpError(403, "You don't have permission to edit this dealer")
+
+        payload = data.dict()
+        branch_id = payload.pop('branch', None)
+        
+        # Update dealer fields
+        for field, value in payload.items():
+            setattr(dealer, field, value)
+        
+        if branch_id:
+            dealer.branch_id = branch_id
+        
+        dealer.save()
+
+        return BaseResponseSchema.success_response(
+            data=serializer.dealer_to_dict(dealer),
+            message="Dealer updated successfully"
+        )
+    except Dealer.DoesNotExist:
+        raise HttpError(404, "Dealer not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error updating dealer: {e}")
+
+
+@router.delete('/dealers/{dealer_id}', response=BaseResponseSchema)
+def delete_dealer(request, dealer_id: int):
+    """Delete a dealer"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        dealer = Dealer.objects.get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if dealer.created_by != user:
+                raise HttpError(403, "You don't have permission to delete this dealer")
+
+        dealer_name = dealer.name
+        
+        # Delete associated user if exists
+        if dealer.user:
+            dealer.user.delete()
+        
+        dealer.delete()
+
+        return BaseResponseSchema.success_response(
+            message=f"Dealer '{dealer_name}' deleted successfully"
+        )
+    except Dealer.DoesNotExist:
+        raise HttpError(404, "Dealer not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error deleting dealer: {e}")
+
+
+# ============================================================================
+# Product Supply Endpoints
+# ============================================================================
 
 @router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
-def list_supplies(request, page: int = 1, page_size: int = 10):
+def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = None, search: str = None):
+    """List product supplies with pagination, branch filter, and search"""
     user = getattr(request, 'user', None)
-    # If authentication is enabled, require a logged in user
-    if user is None or not getattr(user, 'is_authenticated', False):
+    if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
 
-    # Staff/superusers can see all supplies
-    if getattr(user, 'is_superuser', False):
-        supplies_qs = ProductSupply.objects.all()
-    elif getattr(user, 'is_staff', False):
-        # Staff can see supplies they created and ones without creator
-        supplies_qs = ProductSupply.objects.filter(Q(created_by=user))
+    # Determine queryset based on user role
+    if user.is_superuser:
+        supplies_qs = ProductSupply.objects.select_related('dealer', 'dealer__branch').all()
+    elif user.is_staff:
+        supplies_qs = ProductSupply.objects.select_related('dealer', 'dealer__branch').filter(
+            Q(created_by=user)
+        )
     else:
-        # For dealer users, find the linked Dealer and show only its supplies
         dealer = getattr(user, 'dealer_profile', None)
-        if dealer is None:
+        if not dealer:
             supplies_qs = ProductSupply.objects.none()
         else:
-            supplies_qs = ProductSupply.objects.filter(dealer=dealer)
+            supplies_qs = ProductSupply.objects.select_related('dealer', 'dealer__branch').filter(
+                dealer=dealer
+            )
+
+    # Filter by branch if provided
+    if branch_id:
+        supplies_qs = supplies_qs.filter(dealer__branch_id=branch_id)
+    
+    # Search by dealer name, mobile number, company name, product name, serial number, or invoice number
+    if search:
+        supplies_qs = supplies_qs.filter(
+            Q(dealer__name__icontains=search) |
+            Q(dealer__mobile_number__icontains=search) |
+            Q(dealer__company_name__icontains=search) |
+            Q(product_name__icontains=search) |
+            Q(serial_number__icontains=search) |
+            Q(invoice_number__icontains=search)
+        )
 
     items, pagination = paginate_queryset(
         supplies_qs,
@@ -270,40 +493,45 @@ def list_supplies(request, page: int = 1, page_size: int = 10):
         page_size=page_size,
         url_path="/api/supplies"
     )
+
     return PaginatedResponseSchema.success_response(
-        data=[_supply_to_dict(s) for s in items],
+        data=[serializer.supply_to_dict(s) for s in items],
         pagination=pagination,
         message="Product supplies retrieved successfully"
     )
 
+
 @router.post('/supplies', response=BaseResponseSchema[list[ProductSupplyResponseSchema]])
 def add_supplies(request, data: list[ProductSupplySchema]):
+    """Create one or more product supplies"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
     try:
-        user = getattr(request, 'user', None)
-        if user is None or not getattr(user, 'is_authenticated', False):
-            raise HttpError(401, "Unauthorized")
-
-        # normalize to a list in case a single item is passed
         items = data if isinstance(data, list) else [data]
-
         created_items = []
 
         with transaction.atomic():
             for item in items:
                 payload = item.dict()
                 dealer_id = payload.pop('dealer', None)
-                if dealer_id is None:
-                    raise HttpError(400, "dealer is required for each item")
+                
+                if not dealer_id:
+                    raise HttpError(400, "Dealer is required for each item")
 
-                # Authorization: staff/superuser can create for any dealer;
-                # regular dealer users only for their own dealer
-                if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+                # Authorization check
+                if not (user.is_staff or user.is_superuser):
                     dealer = Dealer.objects.filter(id=dealer_id, user=user).first()
-                    if dealer is None:
-                        raise HttpError(403, "You are not allowed to add supply for dealer id %s" % dealer_id)
+                    if not dealer:
+                        raise HttpError(403, f"Not allowed to add supply for dealer id {dealer_id}")
 
-                obj = ProductSupply.objects.create(dealer_id=dealer_id, created_by=user, **payload)
-                created_items.append(_supply_to_dict(obj))
+                supply = ProductSupply.objects.create(
+                    dealer_id=dealer_id,
+                    created_by=user,
+                    **payload
+                )
+                created_items.append(serializer.supply_to_dict(supply))
 
         return BaseResponseSchema.success_response(
             data=created_items,
@@ -317,15 +545,88 @@ def add_supplies(request, data: list[ProductSupplySchema]):
             code="SUPPLY_CREATE_ERROR"
         )
 
+
+@router.put('/supplies/{supply_id}', response=BaseResponseSchema[ProductSupplyResponseSchema])
+def update_supply(request, supply_id: int, data: ProductSupplySchema):
+    """Update an existing product supply"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        supply = ProductSupply.objects.select_related('dealer').get(id=supply_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if supply.created_by != user:
+                raise HttpError(403, "You don't have permission to edit this supply")
+
+        payload = data.dict()
+        dealer_id = payload.pop('dealer', None)
+        
+        # Update supply fields
+        for field, value in payload.items():
+            setattr(supply, field, value)
+        
+        if dealer_id:
+            supply.dealer_id = dealer_id
+        
+        supply.save()
+
+        return BaseResponseSchema.success_response(
+            data=serializer.supply_to_dict(supply),
+            message="Product supply updated successfully"
+        )
+    except ProductSupply.DoesNotExist:
+        raise HttpError(404, "Product supply not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error updating supply: {e}")
+
+
+@router.delete('/supplies/{supply_id}', response=BaseResponseSchema)
+def delete_supply(request, supply_id: int):
+    """Delete a product supply"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        supply = ProductSupply.objects.get(id=supply_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if supply.created_by != user:
+                raise HttpError(403, "You don't have permission to delete this supply")
+
+        product_name = supply.product_name
+        serial_number = supply.serial_number
+        supply.delete()
+
+        return BaseResponseSchema.success_response(
+            message=f"Product supply '{product_name}' (S/N: {serial_number}) deleted successfully"
+        )
+    except ProductSupply.DoesNotExist:
+        raise HttpError(404, "Product supply not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error deleting supply: {e}")
+
+
+# ============================================================================
+# Dashboard Endpoint
+# ============================================================================
+
 @router.get('/dashboard')
 def dashboard_counts(request):
-    # aggregate vehicle counts per product_name by summing the `count` field
-    try:
-        user = getattr(request, 'user', None)
-        if user is None or not getattr(user, 'is_authenticated', False):
-            raise HttpError(401, "Unauthorized")
+    """Get aggregated counts for dashboard"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
 
-        # Base response keys
+    try:
         response = {
             'vehicle_count': 0,
             'battery_count': 0,
@@ -333,17 +634,17 @@ def dashboard_counts(request):
         }
 
         # Determine queryset scope
-        if getattr(user, 'is_superuser', False):
+        if user.is_superuser:
             supplies_qs = ProductSupply.objects.all()
             dealer_count = Dealer.objects.count()
             branch_count = Branch.objects.count()
-        elif getattr(user, 'is_staff', False):
+        elif user.is_staff:
             supplies_qs = ProductSupply.objects.filter(Q(created_by=user))
             dealer_count = Dealer.objects.filter(Q(created_by=user)).count()
             branch_count = Branch.objects.filter(Q(created_by=user)).count()
         else:
             dealer = getattr(user, 'dealer_profile', None)
-            if dealer is None:
+            if not dealer:
                 supplies_qs = ProductSupply.objects.none()
                 dealer_count = 0
                 branch_count = 0
@@ -352,6 +653,7 @@ def dashboard_counts(request):
                 dealer_count = 1
                 branch_count = 1
 
+        # Aggregate product counts
         product_counts = (
             supplies_qs
             .values('product_name')
@@ -375,10 +677,7 @@ def dashboard_counts(request):
             'message': 'Dashboard counts fetched successfully',
             'data': response
         }
-    except HttpError:
-        raise
     except Exception as e:
-        # handle error gracefully
         return {
             'status': False,
             'message': f'Error fetching dashboard counts: {str(e)}',
