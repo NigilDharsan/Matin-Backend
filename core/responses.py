@@ -37,11 +37,9 @@ class BaseResponseSchema(Schema, Generic[T]):
     def error_response(message: str, code: str = "ERROR", details: dict = None) -> dict:
         return {
             "success": False,
-            "error": {
-                "message": message,
-                "code": code,
-                "details": details
-            },
+            "message": message,
+            "code": code,
+            "details": details,
             "timestamp": datetime.now()
         }
 

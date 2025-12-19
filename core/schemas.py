@@ -3,6 +3,8 @@ from typing import Optional, List
 from datetime import date
 from pydantic import EmailStr, BaseModel
 
+from core.responses import PaginationSchema
+
 
 # ============================================================================
 # Authentication Schemas
@@ -121,11 +123,41 @@ class DealerSchema(Schema):
 
 
 # ============================================================================
+# UPDATED SCHEMAS - Add these to your schemas.py
+# ============================================================================
+
+class DealerDetailsSchema(Schema):
+    """Dealer details with purchase statistics"""
+    id: int
+    name: str
+    mobile_number: str
+    company_name: Optional[str] = None
+    email: Optional[str] = None
+    address_line1: str
+    address_line2: Optional[str] = None
+    pincode: Optional[str] = None
+    state: Optional[str] = None
+    branch_id: int
+    branch_name: str
+    vehicle_count: int
+    battery_count: int
+    charger_count: int
+    total_purchases: int
+
+
+class DealerDetailsResponse(Schema):
+    """Response schema for dealer details"""
+    dealer: DealerDetailsSchema
+    purchases: List['ProductSupplyResponseSchema']
+    pagination: 'PaginationSchema'
+
+# ============================================================================
 # Product Supply Schemas
 # ============================================================================
 
 class ProductSupplySchema(Schema):
     dealer: int
+    branch: int  
     product_name: str
     invoice_number: str
     serial_number: str

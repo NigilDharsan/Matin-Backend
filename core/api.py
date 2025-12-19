@@ -446,12 +446,123 @@ def delete_dealer(request, dealer_id: int):
 
 
 # ============================================================================
-# Product Supply Endpoints
+# UPDATED DEALER DETAILS ENDPOINT
+# ============================================================================
+
+@router.get('/dealers/{dealer_id}/details', response={200: dict, 401: dict, 403: dict, 404: dict})
+def get_dealer_details(
+    request, 
+    dealer_id: int,
+    page: int = 1,
+    page_size: int = 10
+):
+    """Get detailed dealer information with purchase statistics and paginated items"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        return 401, {"status": False, "message": "Unauthorized"}
+
+    try:
+        # Get dealer with branch
+        dealer = Dealer.objects.select_related('branch').get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            # Regular users can only view their own dealer profile
+            if not hasattr(user, 'dealer_profile') or user.dealer_profile != dealer:
+                return 403, {"status": False, "message": "You don't have permission to view this dealer"}
+
+        # Get all supplies for this dealer
+        supplies_qs = ProductSupply.objects.filter(dealer=dealer).select_related('dealer__branch')
+        
+        # Calculate product counts by aggregating
+        product_counts = (
+            supplies_qs
+            .values('product_name')
+            .annotate(total=Sum('count'))
+        )
+        
+        vehicle_count = 0
+        battery_count = 0
+        charger_count = 0
+        
+        for p in product_counts:
+            name = (p['product_name'] or '').strip().lower()
+            total = p.get('total') or 0
+            
+            if 'vehicle' in name:
+                vehicle_count += total
+            elif 'battery' in name:
+                battery_count += total
+            elif 'charger' in name:
+                charger_count += total
+        
+        # Get paginated purchase items
+        items, pagination = paginate_queryset(
+            supplies_qs.order_by('-created_at'),
+            page=page,
+            page_size=page_size,
+            url_path=f"/api/dealers/{dealer_id}/details"
+        )
+        
+        # Build dealer details
+        dealer_info = {
+            'id': dealer.id,
+            'name': dealer.name,
+            'mobile_number': dealer.mobile_number,
+            'company_name': dealer.company_name,
+            'email': dealer.email,
+            'address_line1': dealer.address_line1,
+            'address_line2': dealer.address_line2,
+            'pincode': dealer.pincode,
+            'state': dealer.state,
+            'branch_id': dealer.branch.id if dealer.branch else None,
+            'branch_name': dealer.branch.name if dealer.branch else None,
+            'vehicle_count': vehicle_count,
+            'battery_count': battery_count,
+            'charger_count': charger_count,
+            'total_purchases': supplies_qs.count()
+        }
+        
+        # Build purchase items list
+        purchase_items = [serializer.supply_to_dict(item) for item in items]
+        
+        return 200, {
+            'status': True,
+            'message': 'Dealer details retrieved successfully',
+            'data': {
+                'dealer': dealer_info,
+                'purchases': purchase_items,
+                'pagination': {
+                    'count': pagination.count,
+                    'next': pagination.next,
+                    'previous': pagination.previous,
+                    'page_size': pagination.page_size,
+                    'current_page': pagination.current_page,
+                    'total_pages': pagination.total_pages
+                }
+            }
+        }
+        
+    except Dealer.DoesNotExist:
+        return 404, {"status": False, "message": "Dealer not found"}
+    except Exception as e:
+        return 400, {"status": False, "message": f"Error fetching dealer details: {str(e)}"}
+
+
+# ============================================================================
+# UPDATED SUPPLIES ENDPOINTS - Replace existing ones
 # ============================================================================
 
 @router.get('/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
-def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = None, search: str = None):
-    """List product supplies with pagination, branch filter, and search"""
+def list_supplies(
+    request, 
+    page: int = 1, 
+    page_size: int = 10, 
+    branch_id: int = None, 
+    dealer_id: int = None,
+    search: str = None
+):
+    """List product supplies with pagination, branch/dealer filter, and search"""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -475,6 +586,10 @@ def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = 
     # Filter by branch if provided
     if branch_id:
         supplies_qs = supplies_qs.filter(dealer__branch_id=branch_id)
+    
+    # Filter by dealer if provided
+    if dealer_id:
+        supplies_qs = supplies_qs.filter(dealer_id=dealer_id)
     
     # Search by dealer name, mobile number, company name, product name, serial number, or invoice number
     if search:
@@ -503,7 +618,7 @@ def list_supplies(request, page: int = 1, page_size: int = 10, branch_id: int = 
 
 @router.post('/supplies', response=BaseResponseSchema[list[ProductSupplyResponseSchema]])
 def add_supplies(request, data: list[ProductSupplySchema]):
-    """Create one or more product supplies"""
+    """Create one or more product supplies with branch validation"""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
@@ -516,16 +631,35 @@ def add_supplies(request, data: list[ProductSupplySchema]):
             for item in items:
                 payload = item.dict()
                 dealer_id = payload.pop('dealer', None)
+                branch_id = payload.pop('branch', None)
                 
                 if not dealer_id:
                     raise HttpError(400, "Dealer is required for each item")
+                
+                if not branch_id:
+                    raise HttpError(400, "Branch is required for each item")
+
+                # Verify dealer exists and belongs to the specified branch
+                try:
+                    dealer = Dealer.objects.select_related('branch').get(id=dealer_id)
+                    
+                    # Validate branch matches dealer's branch
+                    if dealer.branch_id != branch_id:
+                        raise HttpError(
+                            400, 
+                            f"Dealer '{dealer.name}' belongs to branch '{dealer.branch.name}' "
+                            f"(ID: {dealer.branch_id}), not the specified branch (ID: {branch_id})"
+                        )
+                    
+                except Dealer.DoesNotExist:
+                    raise HttpError(404, f"Dealer with ID {dealer_id} not found")
 
                 # Authorization check
                 if not (user.is_staff or user.is_superuser):
-                    dealer = Dealer.objects.filter(id=dealer_id, user=user).first()
-                    if not dealer:
-                        raise HttpError(403, f"Not allowed to add supply for dealer id {dealer_id}")
+                    if dealer.user != user:
+                        raise HttpError(403, f"Not allowed to add supply for dealer '{dealer.name}'")
 
+                # Create supply
                 supply = ProductSupply.objects.create(
                     dealer_id=dealer_id,
                     created_by=user,
@@ -535,7 +669,7 @@ def add_supplies(request, data: list[ProductSupplySchema]):
 
         return BaseResponseSchema.success_response(
             data=created_items,
-            message="Product supplies created successfully"
+            message=f"{len(created_items)} product supply/supplies created successfully"
         )
     except HttpError:
         raise
@@ -548,13 +682,13 @@ def add_supplies(request, data: list[ProductSupplySchema]):
 
 @router.put('/supplies/{supply_id}', response=BaseResponseSchema[ProductSupplyResponseSchema])
 def update_supply(request, supply_id: int, data: ProductSupplySchema):
-    """Update an existing product supply"""
+    """Update an existing product supply with branch validation"""
     user = getattr(request, 'user', None)
     if not user or not user.is_authenticated:
         raise HttpError(401, "Unauthorized")
 
     try:
-        supply = ProductSupply.objects.select_related('dealer').get(id=supply_id)
+        supply = ProductSupply.objects.select_related('dealer', 'dealer__branch').get(id=supply_id)
         
         # Authorization check
         if not (user.is_staff or user.is_superuser):
@@ -563,13 +697,29 @@ def update_supply(request, supply_id: int, data: ProductSupplySchema):
 
         payload = data.dict()
         dealer_id = payload.pop('dealer', None)
+        branch_id = payload.pop('branch', None)
+        
+        # If dealer is being changed, validate it
+        if dealer_id and dealer_id != supply.dealer_id:
+            try:
+                dealer = Dealer.objects.select_related('branch').get(id=dealer_id)
+                
+                # Validate branch matches dealer's branch
+                if branch_id and dealer.branch_id != branch_id:
+                    raise HttpError(
+                        400, 
+                        f"Dealer '{dealer.name}' belongs to branch '{dealer.branch.name}' "
+                        f"(ID: {dealer.branch_id}), not the specified branch (ID: {branch_id})"
+                    )
+                
+                supply.dealer_id = dealer_id
+                
+            except Dealer.DoesNotExist:
+                raise HttpError(404, f"Dealer with ID {dealer_id} not found")
         
         # Update supply fields
         for field, value in payload.items():
             setattr(supply, field, value)
-        
-        if dealer_id:
-            supply.dealer_id = dealer_id
         
         supply.save()
 
@@ -582,8 +732,65 @@ def update_supply(request, supply_id: int, data: ProductSupplySchema):
     except HttpError:
         raise
     except Exception as e:
-        raise HttpError(400, f"Error updating supply: {e}")
+        raise HttpError(400, f"Error updating supply: {str(e)}")
 
+
+# ============================================================================
+# NEW: Get supplies by dealer
+# ============================================================================
+
+@router.get('/dealers/{dealer_id}/supplies', response=PaginatedResponseSchema[list[ProductSupplyResponseSchema]])
+def get_dealer_supplies(
+    request, 
+    dealer_id: int,
+    page: int = 1,
+    page_size: int = 10,
+    search: str = None
+):
+    """Get all supplies for a specific dealer with pagination"""
+    user = getattr(request, 'user', None)
+    if not user or not user.is_authenticated:
+        raise HttpError(401, "Unauthorized")
+
+    try:
+        # Verify dealer exists
+        dealer = Dealer.objects.select_related('branch').get(id=dealer_id)
+        
+        # Authorization check
+        if not (user.is_staff or user.is_superuser):
+            if not hasattr(user, 'dealer_profile') or user.dealer_profile != dealer:
+                raise HttpError(403, "You don't have permission to view this dealer's supplies")
+
+        # Get supplies
+        supplies_qs = ProductSupply.objects.filter(dealer=dealer).select_related('dealer__branch')
+        
+        # Search if provided
+        if search:
+            supplies_qs = supplies_qs.filter(
+                Q(product_name__icontains=search) |
+                Q(serial_number__icontains=search) |
+                Q(invoice_number__icontains=search)
+            )
+
+        items, pagination = paginate_queryset(
+            supplies_qs.order_by('-created_at'),
+            page=page,
+            page_size=page_size,
+            url_path=f"/api/dealers/{dealer_id}/supplies"
+        )
+
+        return PaginatedResponseSchema.success_response(
+            data=[serializer.supply_to_dict(s) for s in items],
+            pagination=pagination,
+            message=f"Supplies for dealer '{dealer.name}' retrieved successfully"
+        )
+        
+    except Dealer.DoesNotExist:
+        raise HttpError(404, "Dealer not found")
+    except HttpError:
+        raise
+    except Exception as e:
+        raise HttpError(400, f"Error fetching dealer supplies: {str(e)}")
 
 @router.delete('/supplies/{supply_id}', response=BaseResponseSchema)
 def delete_supply(request, supply_id: int):
